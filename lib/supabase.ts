@@ -1,5 +1,16 @@
-// Server-only Supabase client connection utility
-export const supabase = {
-  // TODO: Initialize supabase client here using @supabase/supabase-js
-  // Ensure that this is only used server-side
-};
+import { createClient } from '@supabase/supabase-js'
+
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+if (!url || !serviceRoleKey) {
+  throw new Error('Supabase env vars are missing (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)')
+}
+
+/**
+ * Server-only Supabase client using the service role key.
+ * NEVER import this in client components.
+ */
+export const supabase = createClient(url, serviceRoleKey, {
+  auth: { persistSession: false },
+})
