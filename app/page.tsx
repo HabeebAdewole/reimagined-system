@@ -1,85 +1,107 @@
 'use client'
 
 import { useState } from 'react'
-import Sidebar from "@/components/Sidebar"
-import TopBar from "@/components/TopBar"
-import ChatArea from "@/components/ChatArea"
-import PromptInput from "@/components/PromptInput"
+import Sidebar from '@/components/Sidebar'
+import TopBar from '@/components/TopBar'
+import ChatArea from '@/components/ChatArea'
+import PromptInput from '@/components/PromptInput'
 
 export type MessageStatus = 'thinking' | 'done' | 'error'
 
 export type Message =
   | { id: string; role: 'user'; text: string }
-  | { id: string; role: 'ai'; status: MessageStatus; prompt?: string; svgUrl?: string; svgContent?: string; fileName?: string; fileSize?: string }
+  | {
+      id: string
+      role: 'ai'
+      status: MessageStatus
+      prompt?: string
+      svgUrl?: string
+      fileName?: string
+      fileSize?: string
+      error?: string
+    }
 
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [history, setHistory] = useState<string[]>([])
+  const [isGenerating, setIsGenerating] = useState(false)
 
-  const handleSend = (prompt: string) => {
+  const updateAiMessage = (id: string, patch: Partial<Extract<Message, { role: 'ai' }>>) => {
+    setMessages(prev =>
+      prev.map(m => (m.id === id && m.role === 'ai' ? { ...m, ...patch } : m))
+    )
+  }
+
+  const handleSend = async (prompt: string) => {
+    if (isGenerating) return
+
     const userId = crypto.randomUUID()
     const aiId = crypto.randomUUID()
 
+    setIsGenerating(true)
+    setHistory(prev => [prompt, ...prev])
     setMessages(prev => [
       ...prev,
       { id: userId, role: 'user', text: prompt },
       { id: aiId, role: 'ai', status: 'thinking', prompt },
     ])
 
-    setHistory(prev => [prompt, ...prev])
+    try {
+      // Step 1 — Generate raster image via Stability AI
+      const generateRes = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
 
-    const runPipeline = async () => {
-      try {
-        // 1. Generate Raster image
-        const genRes = await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt }),
-        })
-        if (!genRes.ok) {
-          const errData = await genRes.json().catch(() => ({}));
-          throw new Error(errData.error || 'Generation failed');
-        }
-        const { image } = await genRes.json()
-
-        // 2. Vectorize image
-        const vecRes = await fetch('/api/vectorize', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image }),
-        })
-        if (!vecRes.ok) {
-          const errData = await vecRes.json().catch(() => ({}));
-          throw new Error(errData.error || 'Vectorize failed');
-        }
-        const { svg } = await vecRes.json()
-
-        // 3. Update UI
-        const blob = new Blob([svg], { type: 'image/svg+xml' })
-        const svgUrl = URL.createObjectURL(blob)
-
-        setMessages(prev =>
-          prev.map(m =>
-            m.id === aiId
-              ? {
-                  ...m,
-                  status: 'done' as MessageStatus,
-                  svgUrl,
-                  svgContent: svg,     // add this for ChatArea
-                  fileName: 'output.svg',
-                  fileSize: `${(svg.length / 1024).toFixed(1)} KB`,
-                }
-              : m
-          )
-        )
-      } catch (err) {
-        console.error(err)
-        setMessages(prev => prev.map(m => (m.id === aiId ? { ...m, status: 'error' } : m)))
+      if (!generateRes.ok) {
+        const { error } = await generateRes.json()
+        throw new Error(error || 'Failed to generate image')
       }
+
+      const { image } = await generateRes.json()
+
+      // Step 2 — Vectorize raster to SVG
+      const vectorizeRes = await fetch('/api/vectorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image }),
+      })
+
+      if (!vectorizeRes.ok) {
+        const { error } = await vectorizeRes.json()
+        throw new Error(error || 'Failed to vectorize image')
+      }
+
+      const { svg } = await vectorizeRes.json()
+
+      // Step 3 — Upload SVG + metadata to Supabase
+      const uploadRes = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ svg, prompt }),
+      })
+
+      if (!uploadRes.ok) {
+        const { error } = await uploadRes.json()
+        throw new Error(error || 'Failed to upload file')
+      }
+
+      const { signedUrl, fileName, fileSize } = await uploadRes.json()
+
+      updateAiMessage(aiId, {
+        status: 'done',
+        svgUrl: signedUrl,
+        fileName,
+        fileSize,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Something went wrong'
+      updateAiMessage(aiId, { status: 'error', error: message })
+    } finally {
+      setIsGenerating(false)
     }
-    
-    runPipeline()
   }
 
   return (
@@ -90,7 +112,6 @@ export default function Home() {
         history={history}
       />
 
-      {/* Overlay for mobile */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-20 bg-black/50 lg:hidden"
@@ -101,7 +122,7 @@ export default function Home() {
       <div className="flex flex-col flex-1 min-w-0 h-screen">
         <TopBar onMenuClick={() => setSidebarOpen(prev => !prev)} />
         <ChatArea messages={messages} />
-        <PromptInput onSend={handleSend} disabled={false} />
+        <PromptInput onSend={handleSend} disabled={isGenerating} />
       </div>
     </div>
   )

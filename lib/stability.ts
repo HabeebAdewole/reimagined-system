@@ -1,34 +1,25 @@
-/**
- * Stability AI — Text-to-Image (Stable Diffusion 3)
- * Returns a PNG as a Buffer ready to pipe to Vectorizer.AI
- */
-export async function generateImage(prompt: string): Promise<Buffer> {
-  const apiKey = process.env.STABILITY_API_KEY
-  if (!apiKey) throw new Error('STABILITY_API_KEY is not set')
+import axios from 'axios'
+import { withRetry } from './retry'
 
-  const form = new FormData()
-  form.append('prompt', prompt)
-  form.append('output_format', 'png')
-  form.append('model', 'sd3.5-large-turbo')
-  form.append('aspect_ratio', '1:1')
-
-  const res = await fetch(
-    'https://api.stability.ai/v2beta/stable-image/generate/sd3',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'image/*',
+export async function generateRasterImage(prompt: string): Promise<Buffer> {
+  const response = await withRetry(() =>
+    axios.postForm(
+      'https://api.stability.ai/v2beta/stable-image/generate/sd3',
+      {
+        prompt,
+        output_format: 'png',
+        mode: 'text-to-image',
       },
-      body: form,
-    }
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.STABILITY_API_KEY}`,
+          Accept: 'image/*',
+        },
+        responseType: 'arraybuffer',
+      }
+    ),
+    { retries: 3, baseDelay: 1000 }
   )
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Stability AI error ${res.status}: ${text}`)
-  }
-
-  const arrayBuffer = await res.arrayBuffer()
-  return Buffer.from(arrayBuffer)
+  return Buffer.from(response.data)
 }
