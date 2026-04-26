@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateRasterImage } from '@/lib/stability'
+import { vectorizeImage } from '@/lib/vectorizer'
 
-export const maxDuration = 60 // Vercel function timeout (NFR-04)
+// Max duration for the combined API route
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,17 +13,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 })
     }
 
+    // Step 1: Generate Raster Image Buffer Directly
     const imageBuffer = await generateRasterImage(prompt.trim())
 
-    // Return the raster image as base64 so the next route can use it
+    // Step 2: Vectorize Raster Image to SVG
+    const svgBuffer = await vectorizeImage(imageBuffer)
+
+    // Return the SVG encoded as Base64 to the client directly
     return NextResponse.json({
-      image: imageBuffer.toString('base64'),
-      mimeType: 'image/png',
+      svg: svgBuffer.toString('utf-8'),
     })
   } catch (err) {
-    console.error('[/api/generate]', err)
+    console.error('[/api/generate-vector]', err)
     return NextResponse.json(
-      { error: 'Failed to generate image. Please try again.' },
+      { error: 'Failed to generate vector image. Please try again.' },
       { status: 500 }
     )
   }
