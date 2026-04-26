@@ -1,16 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+// Anon client — safe to use in server components for reads
+export const supabaseAnon = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
-if (!url || !serviceRoleKey) {
-  throw new Error('Supabase env vars are missing (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)')
-}
-
-/**
- * Server-only Supabase client using the service role key.
- * NEVER import this in client components.
- */
-export const supabase = createClient(url, serviceRoleKey, {
-  auth: { persistSession: false },
-})
+// Service role client — NEVER expose to client (NFR-03)
+// Only import this in API routes / server-side code
+export const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
