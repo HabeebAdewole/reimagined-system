@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'SVG and prompt are required' }, { status: 400 })
     }
 
-    const svgBuffer = Buffer.from(svg, 'base64')
+    const svgBuffer = Buffer.from(svg, 'utf-8')
     const fileName = `${crypto.randomUUID()}.svg`
     const filePath = `outputs/${fileName}`
     const fileSize = `${(svgBuffer.byteLength / 1024).toFixed(1)} KB`

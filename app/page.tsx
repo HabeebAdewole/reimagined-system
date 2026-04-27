@@ -48,54 +48,56 @@ export default function Home() {
     ])
 
     try {
-      // Step 1 — Generate raster image via Stability AI
-      const generateRes = await fetch('/api/generate', {
+      // Step 1 & 2 — Generate raster image and vectorize
+      const generateVectorRes = await fetch('/api/generate-vector', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
       })
 
-      if (!generateRes.ok) {
-        const { error } = await generateRes.json()
-        throw new Error(error || 'Failed to generate image')
+      if (!generateVectorRes.ok) {
+        const { error } = await generateVectorRes.json()
+        throw new Error(error || 'Failed to generate vector image')
       }
 
-      const { image } = await generateRes.json()
+      let { svg } = await generateVectorRes.json()
 
-      // Step 2 — Vectorize raster to SVG
-      const vectorizeRes = await fetch('/api/vectorize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image }),
+
+      // Create local blob URL for immediate display
+      const blob = new Blob([svg], { type: 'image/svg+xml' })
+      const localSvgUrl = URL.createObjectURL(blob)
+
+      const tempFileName = `vectogen-${Date.now()}.svg`
+      const tempFileSize = `${(svg.length / 1024).toFixed(2)} KB`
+
+      // Show immediately
+      updateAiMessage(aiId, {
+        status: 'done',
+        svgUrl: localSvgUrl,
+        fileName: tempFileName,
+        fileSize: tempFileSize,
       })
 
-      if (!vectorizeRes.ok) {
-        const { error } = await vectorizeRes.json()
-        throw new Error(error || 'Failed to vectorize image')
-      }
-
-      const { svg } = await vectorizeRes.json()
-
-      // Step 3 — Upload SVG + metadata to Supabase
-      const uploadRes = await fetch('/api/upload', {
+      // Step 3 — Upload SVG + metadata to Supabase in the background
+      fetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ svg, prompt }),
       })
-
-      if (!uploadRes.ok) {
-        const { error } = await uploadRes.json()
-        throw new Error(error || 'Failed to upload file')
-      }
-
-      const { signedUrl, fileName, fileSize } = await uploadRes.json()
-
-      updateAiMessage(aiId, {
-        status: 'done',
-        svgUrl: signedUrl,
-        fileName,
-        fileSize,
-      })
+        .then(async (uploadRes) => {
+          if (!uploadRes.ok) {
+            console.error('Failed to upload file to database in background')
+            return
+          }
+          const { signedUrl, fileName, fileSize } = await uploadRes.json()
+          // Update the message with the permanent URL and actual metadata
+          updateAiMessage(aiId, {
+            svgUrl: signedUrl,
+            fileName,
+            fileSize,
+          })
+        })
+        .catch((err) => console.error('Background upload error:', err))
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong'
       updateAiMessage(aiId, { status: 'error', error: message })
