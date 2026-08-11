@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateRasterImage } from '@/lib/stability'
 import { vectorizeImage } from '@/lib/vectorizer'
+import { MissingEnvError } from '@/lib/env'
 
 // Max duration for the combined API route
 export const maxDuration = 60
@@ -25,6 +26,26 @@ export async function POST(req: NextRequest) {
     })
   } catch (err) {
     console.error('[/api/generate-vector]', err)
+
+    // Config problems are fixable by the operator, not by retrying — say so.
+    if (err instanceof MissingEnvError) {
+      return NextResponse.json({ error: err.message }, { status: 500 })
+    }
+
+    const status = (err as { response?: { status?: number } })?.response?.status
+    if (status === 401 || status === 403) {
+      return NextResponse.json(
+        { error: 'Upstream API rejected the credentials (HTTP 401/403). Check your API keys in .env.local.' },
+        { status: 502 }
+      )
+    }
+    if (status === 402) {
+      return NextResponse.json(
+        { error: 'Out of upstream API credits. Top up your Stability AI account at https://platform.stability.ai/account/credits.' },
+        { status: 502 }
+      )
+    }
+
     return NextResponse.json(
       { error: 'Failed to generate vector image. Please try again.' },
       { status: 500 }

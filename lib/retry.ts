@@ -4,6 +4,18 @@ export interface RetryOptions {
   maxDelay?: number
 }
 
+/**
+ * A 4xx means the request itself is wrong (bad key, bad payload) — replaying it
+ * unchanged always fails, so retrying just delays the error. 408 and 429 are the
+ * exceptions: those genuinely do clear on a later attempt.
+ */
+function isRetryable(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } })?.response?.status
+  if (typeof status !== 'number') return true // network/timeout — worth retrying
+  if (status === 408 || status === 429) return true
+  return status < 400 || status >= 500
+}
+
 export async function withRetry<T>(
   fn: () => Promise<T>,
   options: RetryOptions = {}
@@ -16,7 +28,7 @@ export async function withRetry<T>(
       return await fn()
     } catch (err) {
       lastError = err
-      if (attempt === retries) break
+      if (attempt === retries || !isRetryable(err)) break
 
       // Exponential backoff with jitter
       const delay = Math.min(baseDelay * 2 ** attempt + Math.random() * 200, maxDelay)

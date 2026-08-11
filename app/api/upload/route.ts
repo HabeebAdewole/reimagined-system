@@ -68,6 +68,22 @@ export async function POST(req: NextRequest) {
     })
   } catch (err) {
     console.error('[/api/upload]', err)
+
+    // Storage misconfiguration is fixable by the operator — retrying never helps.
+    const name = (err as { name?: string })?.name
+    if (name === 'SignatureDoesNotMatch' || name === 'InvalidAccessKeyId') {
+      return NextResponse.json(
+        { error: 'S3 credentials rejected. Check S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY / S3_REGION in .env.local.' },
+        { status: 502 }
+      )
+    }
+    if (name === 'NoSuchBucket') {
+      return NextResponse.json(
+        { error: `S3 bucket "${process.env.S3_BUCKET_NAME}" does not exist. Create it in Supabase Storage.` },
+        { status: 502 }
+      )
+    }
+
     return NextResponse.json(
       { error: 'Failed to upload file. Please try again.' },
       { status: 500 }
